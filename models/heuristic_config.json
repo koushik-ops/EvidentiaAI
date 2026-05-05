@@ -1,0 +1,250 @@
+{
+  "sampling_rate_hz": 50.0,
+  "preprocessing": {
+    "sort_by_timestamp": true,
+    "apply_lowpass": true,
+    "sensor_lowpass_hz": 8.0,
+    "gravity_lowpass_hz": 0.35,
+    "filter_order": 4,
+    "remove_gravity": true,
+    "normalize_orientation": true
+  },
+  "duration_thresholds": {
+    "high_acc_mag": 3.2,
+    "high_brake_pct": 35.0,
+    "low_throttle_pct": 12.0,
+    "high_throttle_pct": 60.0,
+    "high_yaw_rate": 0.35,
+    "speed_decel_per_sample": 0.05,
+    "speed_accel_per_sample": 0.05
+  },
+  "smoothing": {
+    "min_consecutive_windows": 2,
+    "majority_window": 3,
+    "single_window_causes": [
+      "possible_collision_impact"
+    ],
+    "protected_causes": [
+      "possible_collision_impact"
+    ],
+    "protect_score_threshold": 0.72
+  },
+  "calibration": {
+    "positive_low_quantile": 0.25,
+    "positive_high_quantile": 0.75,
+    "negative_high_quantile": 0.95,
+    "negative_low_quantile": 0.05
+  },
+  "scoring": {
+    "default_cause": "normal_driving",
+    "min_score_to_emit": 0.48,
+    "causes": {
+      "possible_collision_impact": {
+        "base_reason": "impact-like motion spike detected",
+        "metrics": {
+          "acc_mag_peak": {
+            "direction": "high",
+            "low": 3.8,
+            "high": 6.0,
+            "weight": 0.35
+          },
+          "jerk_peak": {
+            "direction": "high",
+            "low": 2.0,
+            "high": 4.0,
+            "weight": 0.3
+          },
+          "horizontal_acc_peak": {
+            "direction": "high",
+            "low": 2.0,
+            "high": 4.2,
+            "weight": 0.2
+          },
+          "speed_drop": {
+            "direction": "high",
+            "low": 1.0,
+            "high": 6.0,
+            "weight": 0.15
+          }
+        }
+      },
+      "possible_brake_failure": {
+        "base_reason": "strong braking input did not create the expected slowdown",
+        "required_signals": [
+          "has_speed_signal",
+          "has_brake_signal"
+        ],
+        "metrics": {
+          "brake_peak": {
+            "direction": "high",
+            "low": 35.0,
+            "high": 80.0,
+            "weight": 0.2
+          },
+          "brake_sustained_ratio": {
+            "direction": "high",
+            "low": 0.2,
+            "high": 0.7,
+            "weight": 0.25
+          },
+          "low_throttle_ratio": {
+            "direction": "high",
+            "low": 0.35,
+            "high": 0.9,
+            "weight": 0.15
+          },
+          "speed_drop": {
+            "direction": "low",
+            "low": 0.2,
+            "high": 3.2,
+            "weight": 0.2
+          },
+          "speed_decel_sustained_ratio": {
+            "direction": "low",
+            "low": 0.08,
+            "high": 0.4,
+            "weight": 0.1
+          },
+          "speed_mean": {
+            "direction": "high",
+            "low": 4.0,
+            "high": 15.0,
+            "weight": 0.1
+          }
+        }
+      },
+      "hard_braking": {
+        "base_reason": "strong deceleration pattern detected",
+        "metrics": {
+          "speed_drop": {
+            "direction": "high",
+            "low": 2.0,
+            "high": 8.0,
+            "weight": 0.25
+          },
+          "brake_peak": {
+            "direction": "high",
+            "low": 20.0,
+            "high": 70.0,
+            "weight": 0.15
+          },
+          "brake_sustained_ratio": {
+            "direction": "high",
+            "low": 0.12,
+            "high": 0.6,
+            "weight": 0.15
+          },
+          "longitudinal_acc_min": {
+            "direction": "low",
+            "low": -4.0,
+            "high": -0.8,
+            "weight": 0.15
+          },
+          "acc_mag_peak": {
+            "direction": "high",
+            "low": 2.5,
+            "high": 4.5,
+            "weight": 0.15
+          },
+          "jerk_peak": {
+            "direction": "high",
+            "low": 1.3,
+            "high": 2.8,
+            "weight": 0.15
+          }
+        }
+      },
+      "sharp_turning_or_skid": {
+        "base_reason": "yaw and lateral motion suggest a sharp turn or skid",
+        "metrics": {
+          "yaw_peak": {
+            "direction": "high",
+            "low": 0.18,
+            "high": 0.65,
+            "weight": 0.25
+          },
+          "yaw_sustained_ratio": {
+            "direction": "high",
+            "low": 0.12,
+            "high": 0.45,
+            "weight": 0.2
+          },
+          "horizontal_acc_peak": {
+            "direction": "high",
+            "low": 1.0,
+            "high": 2.8,
+            "weight": 0.25
+          },
+          "lateral_acc_peak": {
+            "direction": "high",
+            "low": 0.8,
+            "high": 2.0,
+            "weight": 0.15
+          },
+          "gyro_mag_peak": {
+            "direction": "high",
+            "low": 0.25,
+            "high": 0.8,
+            "weight": 0.1
+          },
+          "speed_mean": {
+            "direction": "high",
+            "low": 4.0,
+            "high": 15.0,
+            "weight": 0.05
+          }
+        }
+      },
+      "rash_driving": {
+        "base_reason": "combined motion intensity matches rash driving",
+        "behavior_bonus": {
+          "AGGRESSIVE": 0.12
+        },
+        "metrics": {
+          "acc_mag_peak": {
+            "direction": "high",
+            "low": 2.5,
+            "high": 4.5,
+            "weight": 0.18
+          },
+          "jerk_peak": {
+            "direction": "high",
+            "low": 1.2,
+            "high": 2.5,
+            "weight": 0.16
+          },
+          "gyro_mag_peak": {
+            "direction": "high",
+            "low": 0.2,
+            "high": 0.7,
+            "weight": 0.14
+          },
+          "throttle_peak": {
+            "direction": "high",
+            "low": 35.0,
+            "high": 75.0,
+            "weight": 0.16
+          },
+          "speed_gain": {
+            "direction": "high",
+            "low": 2.0,
+            "high": 8.0,
+            "weight": 0.12
+          },
+          "high_acc_duration_ratio": {
+            "direction": "high",
+            "low": 0.08,
+            "high": 0.35,
+            "weight": 0.12
+          },
+          "yaw_sustained_ratio": {
+            "direction": "high",
+            "low": 0.08,
+            "high": 0.3,
+            "weight": 0.12
+          }
+        }
+      }
+    }
+  }
+}
