@@ -104,10 +104,23 @@ CAUSE_VALUE_ALIASES = {
     "sharpturningorskid": "sharp_turning_or_skid",
     "skid": "sharp_turning_or_skid",
     "skidding": "sharp_turning_or_skid",
+    "overspeeding": "rash_driving",
+    "overspeed": "rash_driving",
+    "speeding": "rash_driving",
+    "rash": "rash_driving",
     "collision": "possible_collision_impact",
     "impact": "possible_collision_impact",
     "crash": "possible_collision_impact",
     "possiblecollisionimpact": "possible_collision_impact",
+}
+
+CAUSE_DISPLAY_NAMES = {
+    "normal_driving": "Normal / Safe Driving",
+    "rash_driving": "Rash Driving / Overspeeding",
+    "hard_braking": "Hard / Emergency Braking",
+    "possible_brake_failure": "Possible Brake Failure",
+    "sharp_turning_or_skid": "Sharp Turning / Vehicle Skid",
+    "possible_collision_impact": "Collision Impact",
 }
 
 METRIC_LABELS = {
@@ -688,6 +701,97 @@ def default_output_path(input_path):
     return f"{root}_predictions{ext or '.csv'}"
 
 
+STANDARD_SENSOR_COLUMNS = [
+    "AccX", "AccY", "AccZ",
+    "GyroX", "GyroY", "GyroZ",
+    "Speed", "ThrottlePct", "BrakePct",
+]
+
+
+def read_input_file(path):
+    """Auto-detect file format by extension and return a DataFrame."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".xlsx" or ext == ".xls":
+        return pd.read_excel(path)
+    elif ext == ".json":
+        return pd.read_json(path)
+    else:
+        return pd.read_csv(path)
+
+
+def save_output_file(df, path, fmt=None):
+    """Save DataFrame in the requested format. Auto-detects from extension if fmt is None."""
+    if fmt is None:
+        fmt = os.path.splitext(path)[1].lower().lstrip(".")
+    fmt = fmt.lower()
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    if fmt in ("xlsx", "xls"):
+        df.to_excel(path, index=False)
+    elif fmt == "json":
+        df.to_json(path, orient="records", indent=2, force_ascii=False)
+    else:
+        df.to_csv(path, index=False)
+
+
+def standardize_dataframe(df, column_mapping=None):
+    """Normalize column names and ensure all standard sensor columns exist (fill missing with 0)."""
+    result = normalize_sensor_columns(df.copy())
+    if column_mapping:
+        result = result.rename(columns=column_mapping)
+    for col in STANDARD_SENSOR_COLUMNS:
+        if col not in result.columns:
+            result[col] = 0.0
+    return result
+
+
+def predict_single_entry(sensor_values, config_path=DEFAULT_HEURISTIC_CONFIG_PATH, assets=None):
+    """Predict from a single dict of sensor values. Missing fields default to 0."""
+    assets = assets or load_prediction_assets(config_path)
+    config = assets["config"]
+    model = assets["model"]
+    scaler = assets["scaler"]
+    feature_names = assets["feature_names"]
+    label_map = assets["label_map"]
+
+    row = {col: 0.0 for col in STANDARD_SENSOR_COLUMNS}
+    for key, value in sensor_values.items():
+        canonical = RAW_COLUMN_ALIASES.get(sanitize_column_name(key), key)
+        try:
+            row[canonical] = float(value)
+        except (ValueError, TypeError):
+            row[canonical] = 0.0
+
+    source_df = pd.DataFrame([row])
+    source_df = preprocess_raw_sensor_df(source_df, config)
+
+    window_size = min(len(source_df), DEFAULT_WINDOW_SIZE)
+    feature_df, meta = build_features_from_raw(source_df, window_size, window_size, config)
+    meta_df = pd.DataFrame(meta)
+
+    X = align_features(feature_df, feature_names)
+    X_scaled = scaler.transform(X)
+    preds = model.predict(X_scaled)
+
+    results = meta_df.copy()
+    results["prediction_id"] = preds.astype(int)
+    results["prediction_label"] = [label_map.get(int(p), p) for p in preds]
+
+    if hasattr(model, "predict_proba"):
+        probs = model.predict_proba(X_scaled)
+        add_probability_columns(results, probs, model.classes_, label_map)
+
+    results = predict_causes(results, config)
+    results = smooth_cause_labels(results, config)
+
+    summary = summarize_prediction_results(results, "raw")
+    return {
+        "results": results,
+        "summary": summary,
+        "label_map": label_map,
+        "config_path": assets["config_path"],
+    }
+
+
 def default_calibration_output_path():
     return os.path.join(MODELS_DIR, "heuristic_config.calibrated.json")
 
@@ -1225,7 +1329,7 @@ def predict_from_input_path(
     label_map = assets["label_map"]
 
     input_path = os.path.abspath(input_path)
-    source_df = pd.read_csv(input_path)
+    source_df = read_input_file(input_path)
 
     if input_mode == "feature":
         feature_df = source_df.copy()
@@ -1285,7 +1389,7 @@ def predict_from_input_path(
         )
 
     output_path = os.path.abspath(output_path or default_output_path(input_path))
-    results.to_csv(output_path, index=False)
+    save_output_file(results, output_path)
 
     return {
         "input_path": input_path,
@@ -1298,6 +1402,290 @@ def predict_from_input_path(
         "preds": preds,
         "label_map": label_map,
         "summary": summarize_prediction_results(results, input_mode),
+    }
+
+
+def auto_analyze_telemetry(
+    input_path,
+    config_path=DEFAULT_HEURISTIC_CONFIG_PATH,
+    output_path=None,
+    output_format="csv",
+    assets=None,
+):
+    """
+    Automated one-click forensic analysis pipeline:
+    1. Reads any supported format (.csv, .xlsx, .xls, .json)
+    2. Auto-detects if raw sensor or feature-engineered
+    3. Normalizes & standardizes missing sensor columns (fills with 0.0)
+    4. Dynamically handles small/short telemetry files
+    5. Executes XGBoost behavior prediction + Heuristic Accident Cause Engine
+    6. Extracts comprehensive forensic metrics (Peak G-Force, Speed drop, Yaw, etc.)
+    """
+    assets = assets or load_prediction_assets(config_path)
+    config = assets["config"]
+    model = assets["model"]
+    scaler = assets["scaler"]
+    feature_names = assets["feature_names"]
+    label_map = assets["label_map"]
+
+    input_path = os.path.abspath(input_path)
+    source_df = read_input_file(input_path)
+
+    if source_df is None or len(source_df) == 0:
+        raise ValueError("The provided file is empty or could not be parsed.")
+
+    # Check if raw, feature CSV, or Key-Value Summary Sheet (e.g. Evidentia accident export)
+    is_kv_sheet = False
+    if source_df.shape[1] in (2, 3):
+        col0_vals = [sanitize_column_name(str(x)) for x in source_df.iloc[:, 0].dropna().head(12)]
+        kv_indicators = ["acceleration", "speed", "jerk", "brake", "crash", "evidence", "status", "field", "project", "detection", "classification", "vehicle", "angular"]
+        match_count = sum(1 for v in col0_vals if any(k in v for k in kv_indicators))
+        if match_count >= 2 or sanitize_column_name(str(source_df.columns[0])) in ("field", "key", "property", "metric", "attribute"):
+            is_kv_sheet = True
+
+    matched_features = sum(1 for col in feature_names if col in source_df.columns)
+    is_feature_csv = (matched_features >= len(feature_names) * 0.6)
+
+    if is_kv_sheet:
+        input_mode = "raw"
+        input_kind = "Accident Reconstruction Evidence Sheet"
+        
+        # Parse Key-Value dictionary
+        kv_dict = {}
+        for _, row in source_df.iterrows():
+            k = sanitize_column_name(str(row.iloc[0]).strip())
+            v = row.iloc[1]
+            kv_dict[k] = v
+
+        # Extract kinematics with unit normalization
+        def _get_num(keys, default=0.0):
+            for k in keys:
+                for dict_k, dict_v in kv_dict.items():
+                    if k in dict_k:
+                        try:
+                            return float(dict_v)
+                        except (ValueError, TypeError):
+                            pass
+            return default
+
+        raw_acc = _get_num(["accelerationmagnitude", "acceleration", "acc"], 0.0)
+        # Convert m/s^2 to g if value > 15.0 or key says ms2
+        acc_g = raw_acc / 9.81 if raw_acc > 15.0 else raw_acc
+
+        raw_speed = _get_num(["detectedspeed", "speed", "velocity"], 0.0)
+        # Convert m/s to km/h if speed is in m/s (< 45.0)
+        speed_kmh = raw_speed * 3.6 if raw_speed < 45.0 and raw_speed > 0 else raw_speed
+
+        raw_speed_drop = _get_num(["speeddrop", "drop"], 0.0)
+        speed_drop_kmh = raw_speed_drop * 3.6 if raw_speed_drop < 30.0 and raw_speed_drop > 0 else raw_speed_drop
+
+        raw_jerk = _get_num(["jerk"], 0.0)
+        jerk_g = raw_jerk / 9.81 if raw_jerk > 15.0 else raw_jerk
+
+        raw_gyro = _get_num(["angularacceleration", "angular", "gyro", "yaw"], 0.0)
+        raw_brake = _get_num(["brake", "brakepct"], 0.0)
+        brake_pct = raw_brake * 100.0 if 0 < raw_brake <= 1.0 else raw_brake
+
+        raw_throttle = _get_num(["throttle", "throttlepct"], 0.0)
+        throttle_pct = raw_throttle * 100.0 if 0 < raw_throttle <= 1.0 else raw_throttle
+
+        # Synthesize time-series wave matching the exact evidence metrics
+        n_samples = 100
+        impact_idx = 50
+        time_arr = np.linspace(0, 2.0, n_samples)
+        
+        sim_speed = np.ones(n_samples) * max(speed_kmh, 45.0)
+        decay = np.exp(-np.linspace(0, 4, n_samples - impact_idx))
+        sim_speed[impact_idx:] = np.maximum(0.0, sim_speed[impact_idx] - speed_drop_kmh * (1 - decay))
+
+        sim_acc_x = np.random.normal(0, 0.1, n_samples)
+        sim_acc_y = np.random.normal(0, 0.1, n_samples)
+        sim_acc_z = np.random.normal(0, 0.1, n_samples)
+
+        pulse_w = 6
+        pulse = np.sin(np.linspace(0, np.pi, pulse_w)) * acc_g
+        for k, p in enumerate(pulse):
+            if impact_idx + k < n_samples:
+                sim_acc_x[impact_idx + k] -= p
+
+        sim_gyro_z = np.random.normal(0, 0.05, n_samples)
+        sim_gyro_z[impact_idx:impact_idx + pulse_w] += raw_gyro * 0.1
+
+        processed_raw_df = pd.DataFrame({
+            "AccX": sim_acc_x, "AccY": sim_acc_y, "AccZ": sim_acc_z,
+            "GyroX": np.zeros(n_samples), "GyroY": np.zeros(n_samples), "GyroZ": sim_gyro_z,
+            "Speed": sim_speed,
+            "ThrottlePct": np.ones(n_samples) * throttle_pct,
+            "BrakePct": np.ones(n_samples) * brake_pct,
+            "AccMag": np.sqrt(sim_acc_x**2 + sim_acc_y**2 + sim_acc_z**2),
+            "LinAccMag": np.sqrt(sim_acc_x**2 + sim_acc_y**2 + sim_acc_z**2),
+            "GyroMag": np.abs(sim_gyro_z),
+        })
+
+        feature_df, meta = build_features_from_raw(processed_raw_df, DEFAULT_WINDOW_SIZE, DEFAULT_STEP_SIZE, config)
+        meta_df = pd.DataFrame(meta)
+
+    elif is_feature_csv:
+        input_mode = "feature"
+        input_kind = "Feature Matrix"
+        feature_df = source_df.copy()
+        meta_df = pd.DataFrame({"row_index": source_df.index})
+        processed_raw_df = pd.DataFrame()
+    else:
+        input_mode = "raw"
+        input_kind = "Raw Sensor Telemetry"
+        # Standardize columns: maps aliases and fills missing standard columns with 0.0
+        standardized_df = standardize_dataframe(source_df)
+        processed_raw_df = preprocess_raw_sensor_df(standardized_df, config)
+
+        # Dynamic windowing so short recordings (even 5-20 rows) produce windows
+        total_rows = len(processed_raw_df)
+        window_size = min(total_rows, DEFAULT_WINDOW_SIZE)
+        if total_rows < DEFAULT_WINDOW_SIZE:
+            step_size = max(1, window_size // 2)
+        else:
+            step_size = DEFAULT_STEP_SIZE
+
+        feature_df, meta = build_features_from_raw(processed_raw_df, window_size, step_size, config)
+        meta_df = pd.DataFrame(meta)
+
+    X = align_features(feature_df, feature_names)
+    X_scaled = scaler.transform(X)
+    preds = model.predict(X_scaled)
+
+    results = meta_df.copy()
+    results["prediction_id"] = preds.astype(int)
+    results["ml_cause_label"] = [label_map.get(int(pred), pred) for pred in preds]
+    results["prediction_label"] = results["ml_cause_label"]
+
+    if hasattr(model, "predict_proba"):
+        probs = model.predict_proba(X_scaled)
+        add_probability_columns(results, probs, model.classes_, label_map)
+
+    # Use ML model predictions as the core predicted cause
+    results["predicted_cause"] = results["ml_cause_label"]
+    results["cause_confidence"] = results.get("confidence", 0.95)
+
+    if input_mode == "raw":
+        scored_heuristics = predict_causes(results, config)
+        results["cause_reason"] = scored_heuristics["raw_cause_reason"]
+    else:
+        results["cause_reason"] = "Direct ML Kinematic Analysis"
+
+    summary = summarize_prediction_results(results, input_mode)
+
+    # Determine primary forensic cause
+    cause_counts = summary.get("cause_counts", {})
+    non_normal_causes = {k: v for k, v in cause_counts.items() if k != "normal_driving"}
+    if non_normal_causes:
+        primary_cause_key = max(non_normal_causes, key=non_normal_causes.get)
+    elif cause_counts:
+        primary_cause_key = max(cause_counts, key=cause_counts.get)
+    else:
+        primary_cause_key = "normal_driving"
+
+    primary_cause_display = CAUSE_DISPLAY_NAMES.get(primary_cause_key, primary_cause_key.replace("_", " ").title())
+
+    # Behavior
+    behavior_counts = summary.get("behavior_counts", {})
+    primary_behavior = max(behavior_counts, key=behavior_counts.get) if behavior_counts else "NORMAL"
+
+    # Find the most descriptive reason for the primary cause
+    primary_reason = "Normal vehicle operation without critical anomaly spikes."
+    if "predicted_cause" in results.columns and "cause_reason" in results.columns:
+        matching_rows = results[results["predicted_cause"] == primary_cause_key]
+        if not matching_rows.empty and "cause_reason" in matching_rows.columns:
+            reasons = matching_rows["cause_reason"].dropna().tolist()
+            if reasons:
+                primary_reason = max(reasons, key=len)
+
+    # Compute key telemetry metrics
+    telemetry_metrics = {
+        "max_speed": 0.0,
+        "avg_speed": 0.0,
+        "speed_drop": 0.0,
+        "peak_g_force": 0.0,
+        "avg_g_force": 0.0,
+        "peak_jerk": 0.0,
+        "peak_yaw": 0.0,
+        "max_brake": 0.0,
+        "max_throttle": 0.0,
+        "total_duration_samples": len(source_df),
+    }
+
+    if not processed_raw_df.empty:
+        if "Speed" in processed_raw_df.columns:
+            speeds = pd.to_numeric(processed_raw_df["Speed"], errors="coerce").dropna()
+            if not speeds.empty:
+                telemetry_metrics["max_speed"] = float(speeds.max())
+                telemetry_metrics["avg_speed"] = float(speeds.mean())
+                if len(speeds) > 1:
+                    telemetry_metrics["speed_drop"] = float(max(0.0, speeds.iloc[0] - speeds.iloc[-1]))
+        
+        acc_col = "LinAccMag" if "LinAccMag" in processed_raw_df.columns else "AccMag"
+        if acc_col in processed_raw_df.columns:
+            accs = pd.to_numeric(processed_raw_df[acc_col], errors="coerce").dropna()
+            if not accs.empty:
+                telemetry_metrics["peak_g_force"] = float(accs.max())
+                telemetry_metrics["avg_g_force"] = float(accs.mean())
+                if len(accs) > 1:
+                    telemetry_metrics["peak_jerk"] = float(np.max(np.abs(np.diff(accs))))
+
+        if "GyroZ" in processed_raw_df.columns:
+            yaws = pd.to_numeric(processed_raw_df["GyroZ"], errors="coerce").dropna()
+            if not yaws.empty:
+                telemetry_metrics["peak_yaw"] = float(np.max(np.abs(yaws)))
+
+        if "BrakePct" in processed_raw_df.columns:
+            brakes = pd.to_numeric(processed_raw_df["BrakePct"], errors="coerce").dropna()
+            if not brakes.empty:
+                telemetry_metrics["max_brake"] = float(brakes.max())
+
+        if "ThrottlePct" in processed_raw_df.columns:
+            throttles = pd.to_numeric(processed_raw_df["ThrottlePct"], errors="coerce").dropna()
+            if not throttles.empty:
+                telemetry_metrics["max_throttle"] = float(throttles.max())
+
+    # Assess overall severity
+    if primary_cause_key in ("possible_collision_impact", "possible_brake_failure"):
+        severity = "CRITICAL"
+        severity_color = "#EA4335"
+    elif primary_cause_key in ("rash_driving", "sharp_turning_or_skid", "hard_braking"):
+        severity = "HIGH"
+        severity_color = "#FBBC04"
+    else:
+        severity = "LOW"
+        severity_color = "#34A853"
+
+    forensic_insights = {
+        "primary_cause_key": primary_cause_key,
+        "primary_cause_display": primary_cause_display,
+        "primary_behavior": primary_behavior,
+        "primary_reason": primary_reason,
+        "severity": severity,
+        "severity_color": severity_color,
+        "telemetry_metrics": telemetry_metrics,
+        "behavior_confidence": summary.get("behavior_confidence_mean", 0.0),
+        "cause_confidence": summary.get("cause_confidence_mean", 0.0),
+    }
+
+    # Save output if requested or default
+    if output_path is None:
+        root, _ = os.path.splitext(input_path)
+        output_path = f"{root}_forensic_predictions.{output_format.lower()}"
+    output_path = os.path.abspath(output_path)
+    save_output_file(results, output_path, output_format)
+
+    return {
+        "input_path": input_path,
+        "input_kind": input_kind,
+        "output_path": output_path,
+        "config_path": assets["config_path"],
+        "source_df": source_df,
+        "processed_raw_df": processed_raw_df,
+        "results": results,
+        "summary": summary,
+        "forensic_insights": forensic_insights,
     }
 
 
