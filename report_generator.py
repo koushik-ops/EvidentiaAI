@@ -393,6 +393,16 @@ def _build_metrics_grid(telemetry_metrics, styles):
          Paragraph("Peak Throttle Input", styles["TableCell"]), Paragraph(throttle, styles["TableCellBold"])],
     ]
 
+    eng_temp = telemetry_metrics.get("peak_engine_temp", 0)
+    oil_temp = telemetry_metrics.get("peak_oil_temp", 0)
+    if eng_temp > 0 or oil_temp > 0:
+        eng_str = f"{eng_temp:.1f} °C" if eng_temp > 0 else "N/A"
+        oil_str = f"{oil_temp:.1f} °C" if oil_temp > 0 else "N/A"
+        rows.append([
+            Paragraph("Peak Engine Temp", styles["TableCell"]), Paragraph(eng_str, styles["TableCellBold"]),
+            Paragraph("Peak Oil Temp", styles["TableCell"]), Paragraph(oil_str, styles["TableCellBold"]),
+        ])
+
     tbl = Table(rows, colWidths=[140, 120, 140, 120])
     tbl.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), _hex_to_reportlab(BLUE_LIGHT)),

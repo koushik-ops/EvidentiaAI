@@ -66,6 +66,8 @@ RAW_COLUMN_ALIASES = {
     "zaxisdegs": "GyroZ",
     "speed": "Speed",
     "vehiclespeed": "Speed",
+    "speedmps": "Speed",
+    "speed_mps": "Speed",
     "throttle": "ThrottlePct",
     "throttlepct": "ThrottlePct",
     "acceleratorpedalpositione": "ThrottlePct",
@@ -74,6 +76,15 @@ RAW_COLUMN_ALIASES = {
     "brakepedal": "BrakePct",
     "brakeposition": "BrakePct",
     "brakepressure": "BrakePct",
+    "enginetemperature": "EngineTemp",
+    "engine_temperature": "EngineTemp",
+    "enginetemp": "EngineTemp",
+    "oiltemperature": "OilTemp",
+    "oil_temperature": "OilTemp",
+    "oiltemp": "OilTemp",
+    "oilpressure": "OilPressure",
+    "oil_pressure": "OilPressure",
+    "rpm": "RPM",
     "label": "label",
     "class": "label",
     "target": "label",
@@ -112,6 +123,9 @@ CAUSE_VALUE_ALIASES = {
     "impact": "possible_collision_impact",
     "crash": "possible_collision_impact",
     "possiblecollisionimpact": "possible_collision_impact",
+    "overheating": "engine_overheating",
+    "engineheating": "engine_overheating",
+    "engineoverheating": "engine_overheating",
 }
 
 CAUSE_DISPLAY_NAMES = {
@@ -121,6 +135,7 @@ CAUSE_DISPLAY_NAMES = {
     "possible_brake_failure": "Possible Brake Failure",
     "sharp_turning_or_skid": "Sharp Turning / Vehicle Skid",
     "possible_collision_impact": "Collision Impact",
+    "engine_overheating": "Engine Overheating / Thermal Failure",
 }
 
 METRIC_LABELS = {
@@ -128,6 +143,8 @@ METRIC_LABELS = {
     "acc_mag_mean": "average acceleration",
     "jerk_peak": "peak jerk",
     "gyro_mag_peak": "peak rotation",
+    "engine_temp_peak": "peak engine temperature",
+    "oil_temp_peak": "peak oil temperature",
     "horizontal_acc_peak": "horizontal acceleration",
     "vertical_acc_peak": "vertical acceleration",
     "speed_drop": "speed drop",
@@ -239,6 +256,14 @@ def default_heuristic_config():
                         "speed_gain": {"direction": "high", "low": 2.0, "high": 8.0, "weight": 0.12},
                         "high_acc_duration_ratio": {"direction": "high", "low": 0.08, "high": 0.35, "weight": 0.12},
                         "yaw_sustained_ratio": {"direction": "high", "low": 0.08, "high": 0.30, "weight": 0.12},
+                    },
+                },
+                "engine_overheating": {
+                    "base_reason": "critical engine thermal elevation / coolant temperature exceeded safe threshold (>105°C)",
+                    "metrics": {
+                        "engine_temp_peak": {"direction": "high", "low": 102.0, "high": 115.0, "weight": 0.50},
+                        "high_engine_temp_ratio": {"direction": "high", "low": 0.15, "high": 0.70, "weight": 0.30},
+                        "oil_temp_peak": {"direction": "high", "low": 110.0, "high": 130.0, "weight": 0.20},
                     },
                 },
             },
@@ -631,6 +656,21 @@ def summarize_window(window, config):
             np.mean(np.abs(yaw) >= float(duration_cfg.get("high_yaw_rate", 0.35)))
         )
 
+    if "EngineTemp" in window.columns:
+        eng_temp = pd.to_numeric(window["EngineTemp"], errors="coerce").dropna().values.astype(float)
+        if len(eng_temp):
+            summary["engine_temp_peak"] = float(np.max(eng_temp))
+            summary["engine_temp_mean"] = float(np.mean(eng_temp))
+            summary["high_engine_temp_ratio"] = float(np.mean(eng_temp >= 105.0))
+            summary["has_engine_temp_signal"] = 1.0
+
+    if "OilTemp" in window.columns:
+        oil_temp = pd.to_numeric(window["OilTemp"], errors="coerce").dropna().values.astype(float)
+        if len(oil_temp):
+            summary["oil_temp_peak"] = float(np.max(oil_temp))
+            summary["oil_temp_mean"] = float(np.mean(oil_temp))
+            summary["high_oil_temp_ratio"] = float(np.mean(oil_temp >= 120.0))
+
     return summary
 
 
@@ -705,14 +745,28 @@ STANDARD_SENSOR_COLUMNS = [
     "AccX", "AccY", "AccZ",
     "GyroX", "GyroY", "GyroZ",
     "Speed", "ThrottlePct", "BrakePct",
+    "EngineTemp", "OilTemp", "RPM",
 ]
 
 
 def read_input_file(path):
-    """Auto-detect file format by extension and return a DataFrame."""
+    """
+    Auto-detect file format and return telemetry DataFrame.
+    For multi-sheet Excel files, prioritizes continuous sensor sheets (Combined Telemetry, OutGauge, MotionSim).
+    """
     ext = os.path.splitext(path)[1].lower()
-    if ext == ".xlsx" or ext == ".xls":
-        return pd.read_excel(path)
+    if ext in (".xlsx", ".xls"):
+        try:
+            xl = pd.ExcelFile(path)
+            # Check for continuous sensor telemetry sheet
+            for preferred in ["Combined Telemetry", "combined_telemetry", "Telemetry", "telemetry", "OutGauge", "MotionSim"]:
+                if preferred in xl.sheet_names:
+                    df = xl.parse(preferred)
+                    if len(df) > 0:
+                        return df
+            return xl.parse(xl.sheet_names[0])
+        except Exception:
+            return pd.read_excel(path)
     elif ext == ".json":
         return pd.read_json(path)
     else:
@@ -1646,8 +1700,19 @@ def auto_analyze_telemetry(
             if not throttles.empty:
                 telemetry_metrics["max_throttle"] = float(throttles.max())
 
+        if "EngineTemp" in processed_raw_df.columns:
+            eng_temps = pd.to_numeric(processed_raw_df["EngineTemp"], errors="coerce").dropna()
+            if not eng_temps.empty:
+                telemetry_metrics["peak_engine_temp"] = float(eng_temps.max())
+                telemetry_metrics["avg_engine_temp"] = float(eng_temps.mean())
+
+        if "OilTemp" in processed_raw_df.columns:
+            oil_temps = pd.to_numeric(processed_raw_df["OilTemp"], errors="coerce").dropna()
+            if not oil_temps.empty:
+                telemetry_metrics["peak_oil_temp"] = float(oil_temps.max())
+
     # Assess overall severity
-    if primary_cause_key in ("possible_collision_impact", "possible_brake_failure"):
+    if primary_cause_key in ("possible_collision_impact", "possible_brake_failure", "engine_overheating"):
         severity = "CRITICAL"
         severity_color = "#EA4335"
     elif primary_cause_key in ("rash_driving", "sharp_turning_or_skid", "hard_braking"):

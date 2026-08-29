@@ -1,3 +1,9 @@
 dataset/
 __pycache__/
 *.pyc
+supabase_config.json
+.env
+data/uploads/
+data/cloud_evidence/
+data/vehicle_registry.json
+reports/*.pdf
