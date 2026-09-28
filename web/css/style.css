@@ -110,6 +110,15 @@ body {
     gap: 14px;
 }
 
+.brand-logo-img {
+    height: 42px;
+    width: auto;
+    max-height: 46px;
+    object-fit: contain;
+    display: block;
+    filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.08));
+}
+
 .brand-icon {
     width: 42px;
     height: 42px;

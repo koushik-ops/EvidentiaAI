@@ -525,7 +525,7 @@ def list_cloud_reports(config=None):
     url = (config.get("report_supabase_url") or config.get("supabase_url") or "").rstrip("/")
     key = config.get("report_supabase_key") or config.get("supabase_key") or ""
     bucket = config.get("report_bucket_name") or "evidentia"
-    folder = config.get("report_folder_prefix", "reports").strip("/")
+    folder = config.get("report_folder_prefix", "report").strip("/")
 
     if not url or not key:
         return {"success": False, "error": "Report storage not configured", "reports": []}
