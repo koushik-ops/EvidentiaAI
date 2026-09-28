@@ -1,5 +1,5 @@
 """
-DriveOps Forensic AI — Web Backend Server
+Evidentia Forensic AI — Web Backend Server
 Serves the modern web dashboard and provides REST APIs for:
 - Telemetry file analysis (.xlsx, .csv, .json)
 - Instant AI cause of accident & driving behavior prediction
@@ -31,7 +31,7 @@ import supabase_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("DriveOpsServer")
+logger = logging.getLogger("EvidentiaServer")
 
 # Initialize Flask app
 WEB_DIR = os.path.join(BASE_DIR, "web")
@@ -53,7 +53,7 @@ def get_prediction_assets():
     global PREDICTION_ASSETS
     if PREDICTION_ASSETS is None:
         try:
-            logger.info("Pre-loading DriveOps AI prediction assets...")
+            logger.info("Pre-loading Evidentia AI prediction assets...")
             PREDICTION_ASSETS = test_model.load_prediction_assets()
             logger.info("AI prediction assets loaded successfully!")
         except Exception as e:
@@ -343,7 +343,7 @@ def api_status():
     """System health check."""
     return jsonify({
         "status": "online",
-        "engine": "DriveOps XGBoost + Forensic Kinematics v2.4",
+        "engine": "Evidentia Forensic AI (XGBoost + Kinematics v2.4)",
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
@@ -423,6 +423,6 @@ def api_cloud_test():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    logger.info(f"🚀 DriveOps Web UI Server running at http://localhost:{port}")
+    logger.info(f"🚀 Evidentia Forensic AI Web UI Server running at http://localhost:{port}")
     app.run(host="0.0.0.0", port=port, debug=False)
 

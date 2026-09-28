@@ -1,5 +1,5 @@
 /**
- * DriveOps Forensic AI — Modern Web UI Client
+ * Evidentia Forensic AI — Modern Web UI Client
  * Handles telemetry upload, Chart.js telemetry rendering, AI predictions, and PDF reports.
  */
 

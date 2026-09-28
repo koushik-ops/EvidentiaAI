@@ -477,7 +477,7 @@ def _add_header_footer(canvas, doc):
 
     canvas.setFont("Helvetica", 7.5)
     canvas.setFillColor(_hex_to_reportlab(TEXT_MUTED))
-    canvas.drawString(30, 18, "DriveOps Vehicle Forensic AI System  •  Confidential Accident Analysis")
+    canvas.drawString(30, 18, "Evidentia Forensic AI System  •  Confidential Accident Analysis")
     canvas.drawRightString(A4[0] - 30, 18, f"Page {doc.page}")
     canvas.restoreState()
 
@@ -502,7 +502,7 @@ def generate_report(
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
     # ── 1. Document Title Header ────────────────────────────────────────
-    elements.append(Paragraph("DriveOps Vehicle Forensic & Accident Report", styles["ReportTitle"]))
+    elements.append(Paragraph("Evidentia Forensic & Accident Report", styles["ReportTitle"]))
     timestamp = datetime.now().strftime("%B %d, %Y  •  %I:%M %p")
     input_fn = os.path.basename(input_info.get("input_path", "Uploaded Telemetry")) if input_info else "Uploaded Telemetry"
     elements.append(Paragraph(f"Analyzed File: <b>{input_fn}</b>  |  Generated: {timestamp}", styles["ReportSubtitle"]))
@@ -562,8 +562,8 @@ def generate_report(
         bottomMargin=30,
         leftMargin=30,
         rightMargin=30,
-        title="DriveOps Vehicle Forensic Report",
-        author="DriveOps AI",
+        title="Evidentia Vehicle Forensic Report",
+        author="Evidentia Forensic AI",
     )
     doc.build(elements, onFirstPage=_add_header_footer, onLaterPages=_add_header_footer)
     return output_path

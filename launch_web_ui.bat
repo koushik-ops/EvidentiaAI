@@ -1,8 +1,8 @@
 @echo off
-title DriveOps Forensic AI — Web Dashboard Server
+title Evidentia Forensic AI — Web Dashboard Server
 cd /d "%~dp0"
 echo ========================================================
-echo  Starting DriveOps Forensic AI Modern Web Dashboard...
+echo  Starting Evidentia Forensic AI Modern Web Dashboard...
 echo ========================================================
 echo  Server Address: http://localhost:5000
 echo ========================================================

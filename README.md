@@ -1,4 +1,4 @@
-# EvidentiaAI / DriveOps Forensic AI 🚗⚡🔍
+# Evidentia Forensic AI 🚗⚡🔍
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Machine Learning](https://img.shields.io/badge/ML-XGBoost%20%7C%20Random%20Forest-orange.svg)](https://xgboost.readthedocs.io/)
@@ -7,7 +7,7 @@
 
 > **Next-Generation Vehicle Telemetry Intelligence & Automated Accident Forensic Investigation Platform**
 
-EvidentiaAI (DriveOps) is an end-to-end AI-powered vehicle crash analytics and incident reconstruction system. It ingests high-frequency raw telemetry (IMU, CAN-BUS, GPS, accelerometer, braking, and steering data), extracts forensic signal features, determines root cause accident drivers using an ensemble of calibrated ML models, and produces certified forensic PDF reports ready for insurance adjusters, fleet operators, and legal investigators.
+Evidentia Forensic AI is an end-to-end AI-powered vehicle crash analytics and incident reconstruction system. It ingests high-frequency raw telemetry (IMU, CAN-BUS, GPS, accelerometer, braking, and steering data), extracts forensic signal features, determines root cause accident drivers using an ensemble of calibrated ML models, and produces certified forensic PDF reports ready for insurance adjusters, fleet operators, and legal investigators.
 
 ---
 

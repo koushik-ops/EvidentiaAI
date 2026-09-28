@@ -1,8 +1,8 @@
 @echo off
-title DriveOps Forensic AI — Launch All Services
+title Evidentia Forensic AI — Launch All Services
 cd /d "%~dp0"
 echo ========================================================
-echo  Launching All DriveOps Forensic AI Services...
+echo  Launching All Evidentia Forensic AI Services...
 echo ========================================================
 
 echo [1/2] Starting Cloud Evidence Watcher...
