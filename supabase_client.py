@@ -40,7 +40,7 @@ def get_default_config():
 
 
 def load_config():
-    """Load configuration from supabase_config.json or environment variables."""
+    """Load configuration from supabase_config.json with environment variable overrides."""
     config = get_default_config()
     if os.path.exists(CONFIG_FILE):
         try:
@@ -49,6 +49,23 @@ def load_config():
                 config.update(saved)
         except Exception as e:
             logger.error(f"Error loading {CONFIG_FILE}: {e}")
+
+    # Allow environment variables to override file config when deployed to cloud
+    env_mappings = {
+        "SUPABASE_URL": "supabase_url",
+        "SUPABASE_KEY": "supabase_key",
+        "SUPABASE_BUCKET": "bucket_name",
+        "SUPABASE_FOLDER": "folder_prefix",
+        "SUPABASE_TABLE": "table_name",
+        "REPORT_SUPABASE_URL": "report_supabase_url",
+        "REPORT_SUPABASE_KEY": "report_supabase_key",
+        "REPORT_SUPABASE_BUCKET": "report_bucket_name",
+        "REPORT_SUPABASE_FOLDER": "report_folder_prefix",
+    }
+    for env_var, cfg_key in env_mappings.items():
+        val = os.environ.get(env_var)
+        if val:
+            config[cfg_key] = val
     return config
 
 
